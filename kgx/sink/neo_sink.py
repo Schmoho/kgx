@@ -2,7 +2,6 @@ from typing import List, Union, Any
 
 from neo4j import GraphDatabase, Neo4jDriver, Session
 from neo4j.exceptions import Neo4jError
-
 from kgx.config import get_logger
 from kgx.error_detection import ErrorType
 from kgx.sink.sink import Sink
