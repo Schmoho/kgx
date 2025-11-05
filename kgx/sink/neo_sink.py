@@ -1,4 +1,4 @@
-from typing import List, Union, Any
+from typing import List, Union, Any, Optional, Dict
 
 from neo4j import GraphDatabase, Neo4jDriver, Session
 from neo4j.exceptions import Neo4jError
@@ -30,7 +30,8 @@ class NeoSink(Sink):
     password: str
         The password
     kwargs: Any
-        Any additional arguments
+        Any additional arguments (for example, ``database`` to target a non-default
+        Neo4j database)
 
     """
 
@@ -49,6 +50,8 @@ class NeoSink(Sink):
         if cache_size is None and getattr(owner, "stream", False):
             cache_size = STREAM_CACHE_SIZE
         self.cache_size = cache_size if cache_size is not None else self.CACHE_SIZE
+        self.database = kwargs.get("database")
+
         log.info("Connecting to Neo4j at %s", uri)
         log.debug("Neo4j sink cache size set to %s", self.cache_size)
         try:
@@ -69,7 +72,12 @@ class NeoSink(Sink):
             )
             raise
         try:
-            self.session: Session = self.http_driver.session()
+            if self.database:
+                self.session: Session = self.http_driver.session(
+                    database=self.database
+                )
+            else:
+                self.session: Session = self.http_driver.session()
         except Neo4jError as e:
             log.error(
                 "Neo4j session creation failed for %s: %s", uri, e, exc_info=True
@@ -148,8 +156,9 @@ class NeoSink(Sink):
                 log.debug(f"Batch {x} - {y}")
                 batch = nodes[x:y]
                 try:
-                    result = self.session.run(query, parameters={"nodes": batch})
-                    summary = result.consume()
+                    summary = self.session.execute_write(
+                        NeoSink._run_query, query, {"nodes": batch}
+                    )
                     log.debug(
                         "Neo4j summary for nodes in category %s (batch %s-%s): %s",
                         category,
@@ -240,10 +249,11 @@ class NeoSink(Sink):
                 log.debug(f"Batch {x} - {y}")
                 log.debug(edges[x:y])
                 try:
-                    result = self.session.run(
-                        query, parameters={"relationship": predicate, "edges": batch}
+                    summary = self.session.execute_write(
+                        NeoSink._run_query,
+                        query,
+                        {"relationship": predicate, "edges": batch},
                     )
-                    summary = result.consume()
                     log.debug(
                         "Neo4j summary for predicate %s (batch %s-%s): %s",
                         predicate,
@@ -295,6 +305,17 @@ class NeoSink(Sink):
                 self.session.close()
             finally:
                 self.http_driver.close()
+
+    @staticmethod
+    def _run_query(
+        tx,
+        query: str,
+        parameters: Optional[Dict[str, Any]] = None,
+    ):
+        """Execute a Cypher query inside a managed write transaction."""
+        params = parameters or {}
+        result = tx.run(query, parameters=params)
+        return result.consume()
 
     @staticmethod
     def sanitize_category(category: List) -> List:
@@ -403,8 +424,7 @@ class NeoSink(Sink):
             else:
                 query = NeoSink.create_constraint_query(category)
                 try:
-                    result = self.session.run(query)
-                    summary = result.consume()
+                    summary = self.session.execute_write(NeoSink._run_query, query)
                     log.debug(
                         "Neo4j constraint summary for category %s: %s",
                         category,
