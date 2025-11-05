@@ -347,16 +347,21 @@ class InfoResContext:
                 ksf_value = kwargs.pop(ksf)
                 if isinstance(ksf_value, dict):
                     for ksf_pattern in ksf_value.keys():
-                        log.debug("ksf_pattern: ", ksf_pattern)
+                        log.debug("ksf_pattern: %s", ksf_pattern)
                         if ksf not in self.mapping:
-                            log.debug("not in the mapping", ksf)
+                            log.debug("ksf '%s' not in the mapping", ksf)
                             self.mapping[ksf] = dict()
-                            log.debug("self.mapping[ksf]: ", self.mapping[ksf])
+                            log.debug("self.mapping[%s]: %s", ksf, self.mapping[ksf])
                         ir = self.get_mapping(ksf)
                         self.mapping[ksf][ksf_pattern] = ir.set_provenance_map_entry(
                             ksf_value[ksf_pattern]
                         )
-                        log.debug("self.mapping[ksf][ksf_pattern]: ", self.mapping[ksf][ksf_pattern])
+                        log.debug(
+                            "self.mapping[%s][%s]: %s",
+                            ksf,
+                            ksf_pattern,
+                            self.mapping[ksf][ksf_pattern],
+                        )
                 else:
                     ir = self.get_mapping(ksf)
                     self.mapping[ksf] = ir.set_provenance_map_entry(ksf_value)
@@ -403,13 +408,15 @@ class InfoResContext:
                 else:
                     sources = data[ksf]
             if ksf in self.mapping:
-                log.debug("self.mapping[ksf]", self.mapping[ksf])
+                log.debug("self.mapping[%s]: %s", ksf, self.mapping[ksf])
                 if isinstance(self.mapping[ksf], dict):
-                    log.debug("self.mapping[ksf].keys()", self.mapping[ksf].keys())
+                    log.debug(
+                        "self.mapping[%s].keys(): %s", ksf, list(self.mapping[ksf].keys())
+                    )
                     for pattern in self.mapping[ksf].keys():
-                        log.debug("pattern", pattern)
+                        log.debug("pattern: %s", pattern)
                         for source in sources:
-                            log.debug("source", source)
+                            log.debug("source: %s", source)
                             if re.compile(pattern).match(source):
                                 index_of_source = data[ksf].index(source)
                                 del data[ksf][index_of_source]
@@ -417,7 +424,7 @@ class InfoResContext:
                             else:
                                 if source not in data[ksf] and source not in self.mapping[ksf].keys():
                                     data[ksf].append(source)
-                        log.debug("data[ksf]", data[ksf])
+                        log.debug("data[%s]: %s", ksf, data[ksf])
                 else:
                     data[ksf] = self.mapping[ksf](sources)
             else:  # leave data intact if no mapping found

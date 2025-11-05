@@ -22,6 +22,16 @@ The KGX CLI is a way of accessing KGX's functionality directly from the command 
 
 Currently, the CLI supports the following operations:
 
+You can control runtime logging with the ``--log-level`` flag, which accepts ``TRACE``, ``DEBUG``, ``INFO``, ``WARNING``, ``ERROR``, or ``CRITICAL``. For example:
+
+```bash
+    kgx --log-level TRACE neo4j-upload --uri http://localhost:7474 \
+                                  --username neo4j \
+                                  --password admin \
+                                  --input-format tsv \
+                                  tests/resources/test_nodes.tsv tests/resources/test_edges.tsv
+```
+
 ### graph-summary
 
 Summarizes a graph and generate a YAML report regarding the composition of node and edge types in the graph.
@@ -74,9 +84,14 @@ Download a (sub)graph from a local or remote Neo4j instance.
 
 Upload a (sub)graph to a clean local or remote Neo4j instance.
 
-**Note:** This operation expects the Neo4j instance to be empty. This operation 
+**Note:** This operation expects the Neo4j instance to be empty. This operation
 does not support updating an existing Neo4j graph. Writing to an existing graph
 may lead to side effects.
+
+When running large jobs, add the ``--stream`` flag so KGX sends each batch
+directly to Neo4j instead of buffering the whole graph in memory. Streaming
+uploads will create nodes and edges in the database while the command is
+running, making it easy to monitor progress with live Cypher queries.
 
 ```bash
     kgx neo4j-upload --uri http://localhost:7474 \
