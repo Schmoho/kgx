@@ -3,7 +3,7 @@ from typing import List, Tuple, Optional, Dict
 import click
 
 import kgx
-from kgx.config import get_logger, get_config
+from kgx.config import get_logger, get_config, set_log_level
 from kgx.cli.cli_utils import (
     get_input_file_types,
     get_output_file_types,
@@ -29,14 +29,24 @@ def error(msg):
 
 
 @click.group()
+@click.option(
+    "--log-level",
+    type=click.Choice(
+        ["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        case_sensitive=False,
+    ),
+    required=False,
+    help="Override the KGX log level for this invocation.",
+)
 @click.version_option(version=kgx.__version__, prog_name=kgx.__name__)
-def cli():
+def cli(log_level):
     """
     Knowledge Graph Exchange CLI entrypoint.
     \f
 
     """
-    pass
+    if log_level:
+        set_log_level(log_level)
 
 
 @cli.command(name="graph-summary")

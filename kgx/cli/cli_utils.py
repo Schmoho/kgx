@@ -333,7 +333,19 @@ def neo4j_upload(
         The NeoTransformer
 
     """
+    log.info("Preparing Neo4j upload to %s", uri)
+    log.debug(
+        "Neo4j upload parameters: inputs=%s, input_format=%s, input_compression=%s, stream=%s, node_filters=%s, edge_filters=%s",
+        inputs,
+        input_format,
+        input_compression,
+        stream,
+        node_filters,
+        edge_filters,
+    )
+
     transformer = Transformer(stream=stream)
+    log.info("Loading input data into transformer")
     transformer.transform(
         {
             "filename": inputs,
@@ -343,9 +355,11 @@ def neo4j_upload(
             "edge_filters": edge_filters,
         }
     )
+    log.info("Uploading transformer data to Neo4j at %s", uri)
     transformer.save(
         {"uri": uri, "username": username, "password": password, "format": "neo4j"}
     )
+    log.info("Completed Neo4j upload to %s", uri)
     return transformer
 
 
@@ -539,7 +553,7 @@ def transform(
 
         if knowledge_sources:
             for ksf, spec in knowledge_sources:
-                log.debug("ksf", ksf, "spec", spec)
+                log.debug("knowledge source ksf=%s spec=%s", ksf, spec)
                 ksf_spec = _process_knowledge_source(ksf, spec)
                 if isinstance(ksf_spec, tuple):
                     if ksf not in source_dict["input"]:
@@ -557,7 +571,7 @@ def transform(
                         )
                 else:
                     source_dict["input"][ksf] = ksf_spec
-        log.debug("source_dict", source_dict)
+        log.debug("source_dict: %s", source_dict)
         name = os.path.basename(inputs[0])
         transform_source(
             key=name,
@@ -876,9 +890,14 @@ def transform_source(
     if infores_catalog:
         with open(infores_catalog, "w") as irc:
             catalog: Dict[str, str] = transformer.get_infores_catalog()
-            for source in catalog.keys():
-                infores = catalog.setdefault(source, "unknown")
-                log.debug(f"{source}\t{infores}", file=irc)
+            for source in catalog:
+                resolved_infores = catalog.setdefault(source, "unknown")
+                log.debug(
+                    "Writing InfoRes catalog entry %s -> %s",
+                    source,
+                    resolved_infores,
+                )
+                irc.write(f"{source}\t{resolved_infores}\n")
 
     return transformer.store
 

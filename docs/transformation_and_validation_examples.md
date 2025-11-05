@@ -22,6 +22,16 @@ The KGX CLI is a way of accessing KGX's functionality directly from the command 
 
 Currently, the CLI supports the following operations:
 
+You can control runtime logging with the ``--log-level`` flag, which accepts ``TRACE``, ``DEBUG``, ``INFO``, ``WARNING``, ``ERROR``, or ``CRITICAL``. For example:
+
+```bash
+    kgx --log-level TRACE neo4j-upload --uri http://localhost:7474 \
+                                  --username neo4j \
+                                  --password admin \
+                                  --input-format tsv \
+                                  tests/resources/test_nodes.tsv tests/resources/test_edges.tsv
+```
+
 ### graph-summary
 
 Summarizes a graph and generate a YAML report regarding the composition of node and edge types in the graph.
