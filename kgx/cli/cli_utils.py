@@ -346,19 +346,36 @@ def neo4j_upload(
 
     transformer = Transformer(stream=stream)
     log.info("Loading input data into transformer")
-    transformer.transform(
-        {
-            "filename": inputs,
-            "format": input_format,
-            "compression": input_compression,
-            "node_filters": node_filters,
-            "edge_filters": edge_filters,
-        }
-    )
-    log.info("Uploading transformer data to Neo4j at %s", uri)
-    transformer.save(
-        {"uri": uri, "username": username, "password": password, "format": "neo4j"}
-    )
+    input_args = {
+        "filename": inputs,
+        "format": input_format,
+        "compression": input_compression,
+        "node_filters": node_filters,
+        "edge_filters": edge_filters,
+    }
+
+    if stream:
+        log.info("Streaming input directly to Neo4j at %s", uri)
+        transformer.transform(
+            input_args,
+            {
+                "uri": uri,
+                "username": username,
+                "password": password,
+                "format": "neo4j",
+            },
+        )
+    else:
+        transformer.transform(input_args)
+        log.info("Uploading transformer data to Neo4j at %s", uri)
+        transformer.save(
+            {
+                "uri": uri,
+                "username": username,
+                "password": password,
+                "format": "neo4j",
+            }
+        )
     log.info("Completed Neo4j upload to %s", uri)
     return transformer
 
