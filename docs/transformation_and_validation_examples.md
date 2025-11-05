@@ -90,8 +90,10 @@ may lead to side effects.
 
 When running large jobs, add the ``--stream`` flag so KGX sends each batch
 directly to Neo4j instead of buffering the whole graph in memory. Streaming
-uploads will create nodes and edges in the database while the command is
-running, making it easy to monitor progress with live Cypher queries.
+uploads limit the Neo4j sink cache to a few thousand records, keeping the
+Python process memory footprint bounded even for very large graphs. The
+database receives nodes and edges while the command is running, making it
+easy to monitor progress with live Cypher queries.
 
 ```bash
     kgx neo4j-upload --uri http://localhost:7474 \

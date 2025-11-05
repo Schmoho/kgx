@@ -2,11 +2,16 @@ from typing import List, Union, Any
 
 from neo4j import GraphDatabase, Neo4jDriver, Session
 from neo4j.exceptions import Neo4jError
+
 from kgx.config import get_logger
 from kgx.error_detection import ErrorType
 from kgx.sink.sink import Sink
 from kgx.source.source import DEFAULT_NODE_CATEGORY
+
 log = get_logger()
+
+
+STREAM_CACHE_SIZE = 5000
 
 
 class NeoSink(Sink):
@@ -31,20 +36,22 @@ class NeoSink(Sink):
     """
 
     CACHE_SIZE = 100000
-    node_cache = {}
-    edge_cache = {}
-    node_count = 0
-    edge_count = 0
     CATEGORY_DELIMITER = "|"
     CYPHER_CATEGORY_DELIMITER = ":"
-    _seen_categories = set()
 
     def __init__(self, owner, uri: str, username: str, password: str, **kwargs: Any):
         log.trace("NeoSink.__init__ called with uri=%s", uri)
-        if "cache_size" in kwargs:
-            self.CACHE_SIZE = kwargs["cache_size"]
+        self.node_cache: dict = {}
+        self.edge_cache: dict = {}
+        self.node_count = 0
+        self.edge_count = 0
+        self._seen_categories = set()
+        cache_size = kwargs.get("cache_size")
+        if cache_size is None and getattr(owner, "stream", False):
+            cache_size = STREAM_CACHE_SIZE
+        self.cache_size = cache_size if cache_size is not None else self.CACHE_SIZE
         log.info("Connecting to Neo4j at %s", uri)
-        log.debug("Neo4j sink cache size set to %s", self.CACHE_SIZE)
+        log.debug("Neo4j sink cache size set to %s", self.cache_size)
         try:
             self.http_driver:Neo4jDriver = GraphDatabase.driver(
                 uri, auth=(username, password)
@@ -106,7 +113,7 @@ class NeoSink(Sink):
         log.trace("NeoSink.write_node invoked for node %s", record.get("id"))
         sanitized_category = self.sanitize_category(record["category"])
         category = self.CATEGORY_DELIMITER.join(sanitized_category)
-        if self.node_count >= self.CACHE_SIZE:
+        if self.node_count >= self.cache_size:
             self._flush_node_cache()
         if category not in self.node_cache:
             self.node_cache[category] = [record]
@@ -165,6 +172,7 @@ class NeoSink(Sink):
                         error_type=ErrorType.INVALID_CATEGORY,
                         message=str(e)
                     )
+                    raise
                 except Exception as e:
                     log.error(
                         "Error uploading nodes for category %s batch %s-%s: %s",
@@ -178,6 +186,7 @@ class NeoSink(Sink):
                         error_type=ErrorType.INVALID_CATEGORY,
                         message=str(e)
                     )
+                    raise
 
     def _flush_edge_cache(self):
         log.trace("NeoSink._flush_edge_cache invoked")
@@ -201,7 +210,7 @@ class NeoSink(Sink):
         log.trace(
             "NeoSink.write_edge invoked for edge %s", record.get("id")
         )
-        if self.edge_count >= self.CACHE_SIZE:
+        if self.edge_count >= self.cache_size:
             self._flush_edge_cache()
         # self.validate_edge(data)
         edge_predicate = record["predicate"]
@@ -257,6 +266,7 @@ class NeoSink(Sink):
                         error_type=ErrorType.INVALID_CATEGORY,
                         message=str(e)
                     )
+                    raise
                 except Exception as e:
                     log.error(
                         "Error uploading edges for predicate %s batch %s-%s: %s",
@@ -270,6 +280,7 @@ class NeoSink(Sink):
                         error_type=ErrorType.INVALID_CATEGORY,
                         message=str(e)
                     )
+                    raise
 
     def finalize(self) -> None:
         """
@@ -277,8 +288,14 @@ class NeoSink(Sink):
         """
         log.trace("NeoSink.finalize invoked")
         log.info("Finalizing Neo4j upload")
-        self._write_node_cache()
-        self._write_edge_cache()
+        try:
+            self._write_node_cache()
+            self._write_edge_cache()
+        finally:
+            try:
+                self.session.close()
+            finally:
+                self.http_driver.close()
 
     @staticmethod
     def sanitize_category(category: List) -> List:
@@ -407,6 +424,7 @@ class NeoSink(Sink):
                         error_type=ErrorType.INVALID_CATEGORY,
                         message=str(e)
                     )
+                    raise
                 except Exception as e:
                     log.error(
                         "Error creating constraint for category %s: %s",
@@ -418,6 +436,7 @@ class NeoSink(Sink):
                         error_type=ErrorType.INVALID_CATEGORY,
                         message=str(e)
                     )
+                    raise
 
     @staticmethod
     def create_constraint_query(category: str) -> str:
