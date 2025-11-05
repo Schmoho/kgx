@@ -1,5 +1,5 @@
 import importlib
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 import sys
 from os import path
 
@@ -10,12 +10,35 @@ import yaml
 import json
 import logging
 
+
+TRACE_LEVEL_NUM = 5
+
+
+def _add_trace_level() -> None:
+    """Ensure a TRACE logging level is available on the standard logger."""
+
+    if hasattr(logging.Logger, "trace"):
+        # A custom TRACE level has already been registered elsewhere.
+        return
+
+    logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
+
+    def trace(self: logging.Logger, message: str, *args, **kws) -> None:
+        if self.isEnabledFor(TRACE_LEVEL_NUM):
+            self._log(TRACE_LEVEL_NUM, message, args, **kws)
+
+    setattr(logging.Logger, "trace", trace)
+
+
+_add_trace_level()
+
 from kgx.graph.base_graph import BaseGraph
 
 config: Optional[Dict[str, Any]] = None
 logger: Optional[logging.Logger] = None
 graph_store_class: Optional[BaseGraph] = None
 jsonld_context_map: Dict = {}
+_requested_log_level: Optional[int] = None
 
 CONFIG_FILENAME = path.join(path.dirname(path.abspath(__file__)), "config.yml")
 
@@ -71,6 +94,36 @@ def get_jsonld_context(name: str = "biolink"):
     return content
 
 
+def _coerce_log_level(level: Union[str, int]) -> int:
+    """Convert a level name or integer into a logging level integer."""
+
+    if isinstance(level, int):
+        return level
+
+    normalized = level.upper()
+    if normalized == "TRACE":
+        return TRACE_LEVEL_NUM
+
+    if normalized in logging._nameToLevel:  # type: ignore[attr-defined]
+        return logging._nameToLevel[normalized]  # type: ignore[index]
+
+    raise ValueError(f"Unknown log level: {level}")
+
+
+def set_log_level(level: Union[str, int]) -> None:
+    """Override the logging level for the shared KGX logger."""
+
+    global _requested_log_level, logger
+
+    numeric_level = _coerce_log_level(level)
+    _requested_log_level = numeric_level
+
+    if logger is not None:
+        logger.setLevel(numeric_level)
+        for handler in logger.handlers:
+            handler.setLevel(numeric_level)
+
+
 def get_logger(name: str = "KGX") -> logging.Logger:
     """
     Get an instance of logger.
@@ -94,8 +147,17 @@ def get_logger(name: str = "KGX") -> logging.Logger:
         formatter = logging.Formatter(config["logging"]["format"])
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-        logger.setLevel(config["logging"]["level"])
+        desired_level = _requested_log_level
+        if desired_level is None:
+            desired_level = _coerce_log_level(config["logging"]["level"])
+
+        logger.setLevel(desired_level)
+        handler.setLevel(desired_level)
         logger.propagate = False
+    elif _requested_log_level is not None:
+        logger.setLevel(_requested_log_level)
+        for handler in logger.handlers:
+            handler.setLevel(_requested_log_level)
     return logger
 
 
