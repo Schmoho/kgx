@@ -10,6 +10,28 @@ import yaml
 import json
 import logging
 
+
+TRACE_LEVEL_NUM = 5
+
+
+def _add_trace_level() -> None:
+    """Ensure a TRACE logging level is available on the standard logger."""
+
+    if hasattr(logging.Logger, "trace"):
+        # A custom TRACE level has already been registered elsewhere.
+        return
+
+    logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
+
+    def trace(self: logging.Logger, message: str, *args, **kws) -> None:
+        if self.isEnabledFor(TRACE_LEVEL_NUM):
+            self._log(TRACE_LEVEL_NUM, message, args, **kws)
+
+    setattr(logging.Logger, "trace", trace)
+
+
+_add_trace_level()
+
 from kgx.graph.base_graph import BaseGraph
 
 config: Optional[Dict[str, Any]] = None

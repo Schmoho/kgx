@@ -105,6 +105,12 @@ class Transformer(ErrorDetecting):
 
         """
 
+        log.trace(
+            "Transformer.__init__ called with stream=%s, infores_catalog=%s",
+            stream,
+            infores_catalog,
+        )
+
         ErrorDetecting.__init__(self, error_log)
 
         self.stream = stream
@@ -155,6 +161,11 @@ class Transformer(ErrorDetecting):
         inspector: Optional[Callable[[GraphEntityType, List], None]]
             Optional Callable to 'inspect' source records during processing.
         """
+        log.trace(
+            "Transformer.transform called with input_format=%s, output_format=%s",
+            input_args.get("format"),
+            output_args.get("format") if output_args else None,
+        )
         sources = []
         generators = []
         input_format = input_args["format"]
@@ -317,6 +328,7 @@ class Transformer(ErrorDetecting):
         Return catalog of Information Resource mappings
          aggregated from all Transformer associated sources
         """
+        log.trace("Transformer.get_infores_catalog called")
         return self._infores_catalog
 
     def process(self, source: Generator, sink: Sink) -> None:
@@ -336,6 +348,11 @@ class Transformer(ErrorDetecting):
             An instance of Sink
 
         """
+        log.trace(
+            "Transformer.process called with source=%s, sink=%s",
+            type(source).__name__,
+            type(sink).__name__,
+        )
         for rec in source:
             if rec:
                 log.debug("length of rec", len(rec), "rec", rec)
@@ -377,6 +394,7 @@ class Transformer(ErrorDetecting):
             Arguments relevant to your output sink
 
         """
+        log.trace("Transformer.save called with output_args=%s", output_args)
         if not self.store:
             raise Exception("self.store is empty.")
         source = self.store
@@ -417,6 +435,7 @@ class Transformer(ErrorDetecting):
             An instance of kgx.source.Source
 
         """
+        log.trace("Transformer.get_source called for format=%s", format)
         if format in SOURCE_MAP:
             s = SOURCE_MAP[format]
             return s(self)
@@ -438,6 +457,7 @@ class Transformer(ErrorDetecting):
             An instance of kgx.sink.Sink
 
         """
+        log.trace("Transformer.get_sink called with kwargs=%s", kwargs)
         if kwargs["format"] in SINK_MAP:
             s = SINK_MAP[kwargs["format"]]
             return s(self, **kwargs)
