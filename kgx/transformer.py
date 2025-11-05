@@ -280,7 +280,10 @@ class Transformer(ErrorDetecting):
                         output_args[
                             "node_properties"
                         ] = intermediate_source.node_properties
-                        log.debug("output_args['node_properties']: " + str(output_args["node_properties"]), file=stderr)
+                        log.debug(
+                            "output_args['node_properties']: %s",
+                            output_args["node_properties"],
+                        )
                     if "edge_properties" not in output_args:
                         output_args[
                             "edge_properties"
@@ -355,7 +358,7 @@ class Transformer(ErrorDetecting):
         )
         for rec in source:
             if rec:
-                log.debug("length of rec", len(rec), "rec", rec)
+                log.debug("record length=%s rec=%s", len(rec), rec)
                 if len(rec) == 4:  # infer an edge record
                     write_edge = True
                     if "subject_category" in self.edge_filters:
