@@ -302,6 +302,7 @@ def neo4j_upload(
     stream: bool,
     node_filters: Optional[Tuple] = None,
     edge_filters: Optional[Tuple] = None,
+    database: Optional[str] = None,
 ) -> Transformer:
     """
     Upload a set of nodes/edges to a Neo4j database.
@@ -326,6 +327,9 @@ def neo4j_upload(
         Node filters
     edge_filters: Optional[Tuple]
         Edge filters
+    database: Optional[str]
+        Name of the Neo4j database to target when uploading. Defaults to the
+        server's configured default database.
 
     Returns
     -------
@@ -333,7 +337,11 @@ def neo4j_upload(
         The NeoTransformer
 
     """
-    log.info("Preparing Neo4j upload to %s", uri)
+    log.info(
+        "Preparing Neo4j upload to %s%s",
+        uri,
+        f"/{database}" if database else "",
+    )
     log.debug(
         "Neo4j upload parameters: inputs=%s, input_format=%s, input_compression=%s, stream=%s, node_filters=%s, edge_filters=%s",
         inputs,
@@ -354,28 +362,25 @@ def neo4j_upload(
         "edge_filters": edge_filters,
     }
 
+    sink_args = {
+        "uri": uri,
+        "username": username,
+        "password": password,
+        "format": "neo4j",
+    }
+    if database:
+        sink_args["database"] = database
+
     if stream:
         log.info("Streaming input directly to Neo4j at %s", uri)
         transformer.transform(
             input_args,
-            {
-                "uri": uri,
-                "username": username,
-                "password": password,
-                "format": "neo4j",
-            },
+            sink_args,
         )
     else:
         transformer.transform(input_args)
         log.info("Uploading transformer data to Neo4j at %s", uri)
-        transformer.save(
-            {
-                "uri": uri,
-                "username": username,
-                "password": password,
-                "format": "neo4j",
-            }
-        )
+        transformer.save(sink_args)
     log.info("Completed Neo4j upload to %s", uri)
     return transformer
 

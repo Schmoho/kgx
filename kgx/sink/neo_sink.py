@@ -1,4 +1,5 @@
-from typing import List, Union, Any
+from contextlib import contextmanager
+from typing import List, Union, Any, Optional, Dict
 
 from neo4j import GraphDatabase, Neo4jDriver, Session
 from neo4j.exceptions import Neo4jError
@@ -30,7 +31,8 @@ class NeoSink(Sink):
     password: str
         The password
     kwargs: Any
-        Any additional arguments
+        Any additional arguments (for example, ``database`` to target a non-default
+        Neo4j database)
 
     """
 
@@ -49,8 +51,11 @@ class NeoSink(Sink):
         if cache_size is None and getattr(owner, "stream", False):
             cache_size = STREAM_CACHE_SIZE
         self.cache_size = cache_size if cache_size is not None else self.CACHE_SIZE
+        self.database = kwargs.get("database")
+
         log.info("Connecting to Neo4j at %s", uri)
         log.debug("Neo4j sink cache size set to %s", self.cache_size)
+        self._uri = uri
         try:
             self.http_driver:Neo4jDriver = GraphDatabase.driver(
                 uri, auth=(username, password)
@@ -68,23 +73,43 @@ class NeoSink(Sink):
                 exc_info=True,
             )
             raise
+        with self._managed_session() as session:
+            log.trace("NeoSink session created: %s", session)
+        super().__init__(owner)
+
+    def _open_session(self) -> Session:
         try:
-            self.session: Session = self.http_driver.session()
+            if self.database:
+                return self.http_driver.session(database=self.database)
+            return self.http_driver.session()
         except Neo4jError as e:
             log.error(
-                "Neo4j session creation failed for %s: %s", uri, e, exc_info=True
+                "Neo4j session creation failed for database %s on %s: %s",
+                self.database or "<default>",
+                self._uri,
+                e,
+                exc_info=True,
             )
             raise
         except Exception as e:
             log.error(
                 "Unexpected error opening Neo4j session for %s: %s",
-                uri,
+                self._uri,
                 e,
                 exc_info=True,
             )
             raise
-        log.trace("NeoSink session created: %s", self.session)
-        super().__init__(owner)
+
+    @contextmanager
+    def _managed_session(self) -> Session:
+        session = self._open_session()
+        try:
+            yield session
+        finally:
+            try:
+                session.close()
+            except Exception as e:
+                log.warning("Error closing Neo4j session: %s", e, exc_info=True)
 
     def _flush_node_cache(self):
         log.trace("NeoSink._flush_node_cache invoked")
@@ -128,64 +153,67 @@ class NeoSink(Sink):
         batch_size = 10000
         categories = self.node_cache.keys()
         filtered_categories = [x for x in categories if x not in self._seen_categories]
-        self.create_constraints(filtered_categories)
         total_nodes = sum(len(nodes) for nodes in self.node_cache.values())
         if total_nodes:
             log.info(
                 "Uploading %s nodes across %s categories", total_nodes, len(self.node_cache)
             )
-        for category in self.node_cache.keys():
-            log.debug("Generating UNWIND for category: {}".format(category))
-            cypher_category = category.replace(
-                self.CATEGORY_DELIMITER, self.CYPHER_CATEGORY_DELIMITER
-            )
-            query = self.generate_unwind_node_query(cypher_category)
+        with self._managed_session() as session:
+            if filtered_categories:
+                self.create_constraints(filtered_categories, session=session)
+            for category in self.node_cache.keys():
+                log.debug("Generating UNWIND for category: {}".format(category))
+                cypher_category = category.replace(
+                    self.CATEGORY_DELIMITER, self.CYPHER_CATEGORY_DELIMITER
+                )
+                query = self.generate_unwind_node_query(cypher_category)
 
-            log.debug(query)
-            nodes = self.node_cache[category]
-            for x in range(0, len(nodes), batch_size):
-                y = min(x + batch_size, len(nodes))
-                log.debug(f"Batch {x} - {y}")
-                batch = nodes[x:y]
-                try:
-                    result = self.session.run(query, parameters={"nodes": batch})
-                    summary = result.consume()
-                    log.debug(
-                        "Neo4j summary for nodes in category %s (batch %s-%s): %s",
-                        category,
-                        x,
-                        y,
-                        summary.counters,
-                    )
-                except Neo4jError as e:
-                    log.error(
-                        "Neo4j error uploading nodes for category %s batch %s-%s: %s",
-                        category,
-                        x,
-                        y,
-                        e,
-                        exc_info=True,
-                    )
-                    self.owner.log_error(
-                        entity=f"{category} Nodes {batch}",
-                        error_type=ErrorType.INVALID_CATEGORY,
-                        message=str(e)
-                    )
-                    raise
-                except Exception as e:
-                    log.error(
-                        "Error uploading nodes for category %s batch %s-%s: %s",
-                        category,
-                        x,
-                        y,
-                        e,
-                    )
-                    self.owner.log_error(
-                        entity=f"{category} Nodes {batch}",
-                        error_type=ErrorType.INVALID_CATEGORY,
-                        message=str(e)
-                    )
-                    raise
+                log.debug(query)
+                nodes = self.node_cache[category]
+                for x in range(0, len(nodes), batch_size):
+                    y = min(x + batch_size, len(nodes))
+                    log.debug(f"Batch {x} - {y}")
+                    batch = nodes[x:y]
+                    try:
+                        summary = session.execute_write(
+                            NeoSink._run_query, query, {"nodes": batch}
+                        )
+                        log.debug(
+                            "Neo4j summary for nodes in category %s (batch %s-%s): %s",
+                            category,
+                            x,
+                            y,
+                            summary.counters,
+                        )
+                    except Neo4jError as e:
+                        log.error(
+                            "Neo4j error uploading nodes for category %s batch %s-%s: %s",
+                            category,
+                            x,
+                            y,
+                            e,
+                            exc_info=True,
+                        )
+                        self.owner.log_error(
+                            entity=f"{category} Nodes {batch}",
+                            error_type=ErrorType.INVALID_CATEGORY,
+                            message=str(e)
+                        )
+                        raise
+                    except Exception as e:
+                        log.error(
+                            "Error uploading nodes for category %s batch %s-%s: %s",
+                            category,
+                            x,
+                            y,
+                            e,
+                        )
+                        self.owner.log_error(
+                            entity=f"{category} Nodes {batch}",
+                            error_type=ErrorType.INVALID_CATEGORY,
+                            message=str(e)
+                        )
+                        raise
 
     def _flush_edge_cache(self):
         log.trace("NeoSink._flush_edge_cache invoked")
@@ -230,56 +258,58 @@ class NeoSink(Sink):
             log.info(
                 "Uploading %s edges across %s predicates", total_edges, len(self.edge_cache)
             )
-        for predicate in self.edge_cache.keys():
-            query = self.generate_unwind_edge_query(predicate)
-            log.debug(query)
-            edges = self.edge_cache[predicate]
-            for x in range(0, len(edges), batch_size):
-                y = min(x + batch_size, len(edges))
-                batch = edges[x:y]
-                log.debug(f"Batch {x} - {y}")
-                log.debug(edges[x:y])
-                try:
-                    result = self.session.run(
-                        query, parameters={"relationship": predicate, "edges": batch}
-                    )
-                    summary = result.consume()
-                    log.debug(
-                        "Neo4j summary for predicate %s (batch %s-%s): %s",
-                        predicate,
-                        x,
-                        y,
-                        summary.counters,
-                    )
-                except Neo4jError as e:
-                    log.error(
-                        "Neo4j error uploading edges for predicate %s batch %s-%s: %s",
-                        predicate,
-                        x,
-                        y,
-                        e,
-                        exc_info=True,
-                    )
-                    self.owner.log_error(
-                        entity=f"{predicate} Edges {batch}",
-                        error_type=ErrorType.INVALID_CATEGORY,
-                        message=str(e)
-                    )
-                    raise
-                except Exception as e:
-                    log.error(
-                        "Error uploading edges for predicate %s batch %s-%s: %s",
-                        predicate,
-                        x,
-                        y,
-                        e,
-                    )
-                    self.owner.log_error(
-                        entity=f"{predicate} Edges {batch}",
-                        error_type=ErrorType.INVALID_CATEGORY,
-                        message=str(e)
-                    )
-                    raise
+        with self._managed_session() as session:
+            for predicate in self.edge_cache.keys():
+                query = self.generate_unwind_edge_query(predicate)
+                log.debug(query)
+                edges = self.edge_cache[predicate]
+                for x in range(0, len(edges), batch_size):
+                    y = min(x + batch_size, len(edges))
+                    batch = edges[x:y]
+                    log.debug(f"Batch {x} - {y}")
+                    log.debug(edges[x:y])
+                    try:
+                        summary = session.execute_write(
+                            NeoSink._run_query,
+                            query,
+                            {"relationship": predicate, "edges": batch},
+                        )
+                        log.debug(
+                            "Neo4j summary for predicate %s (batch %s-%s): %s",
+                            predicate,
+                            x,
+                            y,
+                            summary.counters,
+                        )
+                    except Neo4jError as e:
+                        log.error(
+                            "Neo4j error uploading edges for predicate %s batch %s-%s: %s",
+                            predicate,
+                            x,
+                            y,
+                            e,
+                            exc_info=True,
+                        )
+                        self.owner.log_error(
+                            entity=f"{predicate} Edges {batch}",
+                            error_type=ErrorType.INVALID_CATEGORY,
+                            message=str(e)
+                        )
+                        raise
+                    except Exception as e:
+                        log.error(
+                            "Error uploading edges for predicate %s batch %s-%s: %s",
+                            predicate,
+                            x,
+                            y,
+                            e,
+                        )
+                        self.owner.log_error(
+                            entity=f"{predicate} Edges {batch}",
+                            error_type=ErrorType.INVALID_CATEGORY,
+                            message=str(e)
+                        )
+                        raise
 
     def finalize(self) -> None:
         """
@@ -291,10 +321,18 @@ class NeoSink(Sink):
             self._write_node_cache()
             self._write_edge_cache()
         finally:
-            try:
-                self.session.close()
-            finally:
-                self.http_driver.close()
+            self.http_driver.close()
+
+    @staticmethod
+    def _run_query(
+        tx,
+        query: str,
+        parameters: Optional[Dict[str, Any]] = None,
+    ):
+        """Execute a Cypher query inside a managed write transaction."""
+        params = parameters or {}
+        result = tx.run(query, parameters=params)
+        return result.consume()
 
     @staticmethod
     def sanitize_category(category: List) -> List:
@@ -377,7 +415,9 @@ class NeoSink(Sink):
         """
         return query
 
-    def create_constraints(self, categories: Union[set, list]) -> None:
+    def create_constraints(
+        self, categories: Union[set, list], session: Optional[Session] = None
+    ) -> None:
         """
         Create a unique constraint on node 'id' for all ``categories`` in Neo4j.
 
@@ -390,6 +430,11 @@ class NeoSink(Sink):
         log.trace(
             "NeoSink.create_constraints invoked for categories: %s", categories
         )
+        if session is None:
+            with self._managed_session() as managed_session:
+                self.create_constraints(categories, session=managed_session)
+            return
+
         categories_set = set(categories)
         categories_set.add(f"`{DEFAULT_NODE_CATEGORY}`")
         if categories_set:
@@ -397,14 +442,15 @@ class NeoSink(Sink):
                 "Ensuring Neo4j constraints exist for %s categories", len(categories_set)
             )
         for category in categories_set:
+            if category in self._seen_categories:
+                continue
             if self.CATEGORY_DELIMITER in category:
                 subcategories = category.split(self.CATEGORY_DELIMITER)
-                self.create_constraints(subcategories)
+                self.create_constraints(subcategories, session=session)
             else:
                 query = NeoSink.create_constraint_query(category)
                 try:
-                    result = self.session.run(query)
-                    summary = result.consume()
+                    summary = session.execute_write(NeoSink._run_query, query)
                     log.debug(
                         "Neo4j constraint summary for category %s: %s",
                         category,

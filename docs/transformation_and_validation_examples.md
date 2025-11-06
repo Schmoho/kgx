@@ -28,6 +28,7 @@ You can control runtime logging with the ``--log-level`` flag, which accepts ``T
     kgx --log-level TRACE neo4j-upload --uri http://localhost:7474 \
                                   --username neo4j \
                                   --password admin \
+                                  --database neo4j \
                                   --input-format tsv \
                                   tests/resources/test_nodes.tsv tests/resources/test_edges.tsv
 ```
@@ -95,10 +96,14 @@ Python process memory footprint bounded even for very large graphs. The
 database receives nodes and edges while the command is running, making it
 easy to monitor progress with live Cypher queries.
 
+If your Neo4j server hosts multiple databases, provide ``--database <name>``
+to direct uploads to a non-default database.
+
 ```bash
     kgx neo4j-upload --uri http://localhost:7474 \
                      --username neo4j \
                      --password admin \
+                     --database neo4j \
                      --input-format tsv \
                      tests/resources/test_nodes.tsv tests/resources/test_edges.tsv
 ```

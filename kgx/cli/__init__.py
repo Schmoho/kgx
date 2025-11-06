@@ -337,6 +337,13 @@ def neo4j_download_wrapper(
 )
 @click.option("--username", "-u", required=True, type=str, help="Neo4j username")
 @click.option("--password", "-p", required=True, type=str, help="Neo4j password")
+@click.option(
+    "--database",
+    "-d",
+    required=False,
+    type=str,
+    help="Neo4j database name to target. Defaults to the server's configured default.",
+)
 @click.option("--stream", "-s", is_flag=True, help="Parse input as a stream")
 @click.option(
     "--node-filters",
@@ -361,6 +368,7 @@ def neo4j_upload_wrapper(
     uri: str,
     username: str,
     password: str,
+    database: Optional[str],
     stream: bool,
     node_filters: Tuple[str, str],
     edge_filters: Tuple[str, str],
@@ -383,6 +391,8 @@ def neo4j_upload_wrapper(
         Username for authentication
     password: str
         Password for authentication
+    database: Optional[str]
+        Name of the Neo4j database to target when uploading
     stream: bool
         Whether to parse input as a stream
     node_filters: Tuple[str, str]
@@ -393,15 +403,16 @@ def neo4j_upload_wrapper(
     """
     try:
         neo4j_upload(
-            inputs,
-            input_format,
-            input_compression,
-            uri,
-            username,
-            password,
-            stream,
-            node_filters,
-            edge_filters,
+            inputs=inputs,
+            input_format=input_format,
+            input_compression=input_compression,
+            uri=uri,
+            username=username,
+            password=password,
+            stream=stream,
+            node_filters=node_filters,
+            edge_filters=edge_filters,
+            database=database,
         )
         exit(0)
     except Exception as nue:

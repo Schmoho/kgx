@@ -16,6 +16,7 @@ from tests.unit import (
     DEFAULT_NEO4J_URL,
     DEFAULT_NEO4J_USERNAME,
     DEFAULT_NEO4J_PASSWORD,
+    DEFAULT_NEO4J_DATABASE,
     clean_database
 )
 
@@ -561,6 +562,7 @@ def test_neo4j_upload_wrapper(clean_database):
             "--uri", DEFAULT_NEO4J_URL,
             "--username", DEFAULT_NEO4J_USERNAME,
             "--password", DEFAULT_NEO4J_PASSWORD,
+            "--database", DEFAULT_NEO4J_DATABASE,
             os.path.join(RESOURCE_DIR, "graph_nodes.tsv")
         ]
     )
